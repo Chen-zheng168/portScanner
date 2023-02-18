@@ -6,10 +6,8 @@
 class ScanTask : virtual public QRunnable
 {
 public:
-    ScanTask(const QString& ip, int start_port, int end_port)
-        : m_ip(ip), m_start_port(start_port), m_end_port(end_port), m_stopped(false)
-        , m_paused(false){}
-
+    ScanTask(){}
+    ~ScanTask(){}
     void run() override
     {
         for (int port = m_start_port; port <= m_end_port; ++port) {
@@ -47,6 +45,8 @@ private:
     int m_end_port;
     bool m_stopped;
     bool m_paused;
+    pcap_t* m_pcap_handle;
+    libnet_t* m_libnet_handle;
 };
 
 class ConnectScan : public ScanTask

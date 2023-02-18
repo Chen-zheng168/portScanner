@@ -51,6 +51,7 @@ Gui::Gui(QWidget* parent = nullptr) : QWidget(parent)
 
     connect(m_stopBtn, &QPushButton::clicked, this, &Gui::stopScan);
     connect(m_pauseBtn, &QPushButton::clicked, this, &Gui::pauseScan);
+    connect(m_scanner, &PortScanner::error,this, &Gui::error);
     connect(this, &Gui::stop, m_scanner, &PortScanner::stop);
     connect(this, &Gui::resume, m_scanner, &PortScanner::resume);
     connect(this, &Gui::pause, m_scanner, &PortScanner::pause);
@@ -88,5 +89,10 @@ void Gui::updateResult(int port, bool open)
     // 在状态标签中显示扫描结果
     QString statusText = QString("Port %1 is %2\n").arg(port).arg(open ? "open" : "closed");
     m_statusLabel->setText(m_statusLabel->text() + statusText);
+}
+
+void Gui::error(Qstring& err){
+    // 在状态标签中显示错误
+    m_statusLabel->setText(m_statusLabel->text() + err);
 }
 

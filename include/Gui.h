@@ -37,7 +37,8 @@ public slots:
         m_stopBtn->setDisabled(true);
         m_pauseBtn->setDisabled(true);
     }
-
+    //扫描出错
+    void error(Qstring& err);
 signals:
     // 扫描停止信号
     void stop();

@@ -13,7 +13,7 @@ public:
     explicit PortScanner(QObject *parent = nullptr) : QObject(parent) {
         m_progress = 0;
     }
-
+    bool initLibpcapLibnet();
     void scan(const QString &ip, int start_port, int end_port);
 
     // 获取扫描结果
@@ -73,11 +73,13 @@ signals:
     void resume();
 
 private:
-    // 扫描结果
-    QMap<int, bool> m_results;
-    Qstring m_scanType;
-    QMutex m_mutex;
-    QList<QPair<int, int>> m_port_range;
+    
+    QMap<int, bool> m_results;// 扫描结果
+    Qstring m_scanType;//扫描类型
+    QMutex m_mutex;//锁
+    QList<QPair<int, int>> m_port_range;//
+    pcap_t* m_pcap_handle;
+    libnet_t* m_libnet_handle;
     int m_ports;
     int m_progress ;
 };
