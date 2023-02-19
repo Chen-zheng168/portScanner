@@ -94,11 +94,15 @@ void PortScanner::scan(const char* dst_ip, int start_port, int end_port)
         QThread* thread = m_threads_pool.at(thread_index);
         scanTask->moveToThread(thread);
         // 连接信号槽
+        connect(this,&PortScanner::start,scanTask,&ScanTask::run);
         connect(this,&PortScanner::pause,scanTask,&ScanTask::pause);
         connect(this,&PortScanner::resume,scanTask,&ScanTask::resume);
         connect(this,&PortScanner::stop,scanTask,&ScanTask::stop);
         connect(scanTask,&ScanTask::resultReady,this,&PortScanner::handleTask);
         connect(scanTask,&ScanTask::error,this,&PortScanner::handleError);
+        connect(scanTask, &ScanTask::finished, scanTask, &ScanTask::deleteLater);
+        connect(thread, &QThread::finished, scanTask, &QObject::deleteLater);
         QThreadPool::globalInstance()->start(scanTask);
     }
+    emit start();
 }

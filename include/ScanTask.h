@@ -15,7 +15,7 @@ public:
     ScanTask(libnet_t* m_libnet_handle, const char* src_ip, const char* dst_ip,int start_port, int end_port) : m_libnet_handle(m_libnet_handle), src_ip(src_ip)
     , dst_ip(dst_ip),m_start_port(start_port),m_end_port(end_port),m_stopped(false),m_paused(false) {}
     ~ScanTask(){}
-    void run() override
+    void run()
     {
         //初始化抓包
         m_pcap_handle = pcap_open_live("any", 65535, 1, 1, NULL);  // 抓取所有网络接口上的数据包
@@ -43,6 +43,7 @@ public:
             }
         }
         pcap_close(m_pcap_handle);
+        emit finished();
     }
     virtual bool scan(int port) = 0;
 
@@ -57,6 +58,7 @@ public slots:
 signals:
     void resultReady(int port, bool open);
     void error(const QString err);
+    void finished();
 
 protected:
 

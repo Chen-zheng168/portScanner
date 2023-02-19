@@ -77,6 +77,8 @@ signals:
     void resume();
 
     void error(const QString& err);
+    //开始扫描
+    void start();
 
 private:
     QList<QThread*> m_threads_pool;
