@@ -1,84 +1,92 @@
-
 #include "../include/ScanTask.h"
 
-virtual void ConnectScan::scan(QString ip,int port) {
+virtual void ConnectScan::scan(int port) {
     int a=0;
 }
 
-virtual void SynScan::scan(QString ip,int port) {
-    libnet_autobuild_tcp(libnet_get_prand(LIBNET_PRu16), m_port, libnet_get_prand(LIBNET_PRu16), 0, TH_SYN, 2048, NULL, 0, m_libnet_handle);
-    int packet_size = libnet_write(m_libnet_handle);
-    if (packet_size == -1) {
-        emit resultReady(m_port, false);
-        return;
+virtual void SynScan::scan(int port) {
+    // 构造TCP SYN数据包
+    libnet_ptag_t tcp_tag = libnet_build_tcp(
+      SRC_PORT,  // 源端口
+      port,      // 目标端口
+      0,         // 序列号
+      0,         // 确认号
+      TH_SYN,    // 标志位
+      1024,      // 窗口大小
+      0,         // 校验和，0表示由内核自动计算
+      0,         // 紧急指针
+      LIBNET_TCP_H,  // TCP头部长度
+      nullptr,    // 选项
+      0,         // 选项长度
+      m_libnet_handle,        // libnet句柄
+      0);        // 新建一个libnet session
+
+    if (tcp_tag == -1) {
+        emit error(QString("libnet_build_tcp() failed: %1\n").arg(libnet_geterror(m_libnet_handle)));
+        exit(EXIT_FAILURE);
     }
-    pcap_pkthdr header;
-    const u_char* packet_data;
-    while ((packet_data = pcap_next(m_pcap_handle, &header)) != NULL) {
-        if (checkPacket(packet_data, header.len)) {
-            emit resultReady(m_port, true);
-            return;
+    libnet_ptag_t ipv4_tag = libnet_build_ipv4(
+      LIBNET_IPV4_H + LIBNET_TCP_H,  // IP数据报长度
+      0,                            // 服务类型
+      0,                            // 标识
+      0,                            // 片偏移
+      64,                           // TTL
+      IPPROTO_TCP,                  // 上层协议
+      0,                            // 校验和，0表示由内核自动计算
+      inet_addr(m_src_ip),            // 源IP地址
+      inet_addr(dst_ip),            // 目标IP地址
+      nullptr,                      // IP选项
+      0,                            // IP选项长度
+      m_libnet_handle,                           // libnet句柄
+      0);                           // 新建一个libnet session
+    if (ipv4_tag == -1) {
+        emit error(QString("libnet_build_ipv4() failed: %1\n").arg(libnet_geterror(m_libnet_handle)));
+        exit(EXIT_FAILURE);
+    }
+
+    // 发送数据包
+    sendPacket();
+
+    //抓包
+    // 设置过滤器，只抓取目标IP和源端口为固定值的数据包
+    char filter[256];
+    snprintf(filter, sizeof(filter), "dst host %s and src port %d", m_src_ip, SRC_PORT);
+    struct bpf_program bpf;
+    if (pcap_compile(m_pcap_handle, &bpf, filter, 1, PCAP_NETMASK_UNKNOWN) == -1) {
+        emit error(QString("pcap_compile() failed: %1\n").arg(pcap_geterr(m_pcap_handle)));
+        exit(EXIT_FAILURE);
+    }
+    if (pcap_setfilter(m_pcap_handle, &bpf) == -1) {
+        emit error(QString("pcap_setfilter() failed: %1\n").arg(pcap_geterr(m_pcap_handle)));
+        exit(EXIT_FAILURE);
+    }
+
+    int timeout_ms = 100;  // 超时时间（毫秒）
+    struct pcap_pkthdr header;
+    const u_char* packet;
+    //分析包数据
+    while ((packet = pcap_next(m_pcap_handle, &header)) != NULL) {
+      if (isTcp(packet) && isDstIp(packet, m_src_ip)) {
+        const struct tcphdr* tcp_hdr = reinterpret_cast<const struct tcphdr*>(packet + sizeof(struct ether_header) + sizeof(struct iphdr));
+        if (tcp_hdr->ack && tcp_hdr->syn) {
+            return true;
+            //   printf("%d open\n", port);
+            //   break;
+        }else if (tcp_hdr->rst) {
+            return false;
+        //   printf("%d closed\n", port);
+        //   break;
         }
+      }
+
+      if (timeout_ms <= 0) {
+        return;
+      }
+      usleep(1000);
+      timeout_ms--;
     }
-
-    // // 构造TCP SYN数据包
-    // tcp_tag = libnet_build_tcp(
-    //   SRC_PORT,              // 源端口
-    //   0,                     // 目标端口（随机）
-    //   libnet_get_prand(LIBNET_PRu32),  // 序列号
-    //   libnet_get_prand(LIBNET_PRu32),  // 确认号
-    //   TH_SYN,                // TCP标志位：SYN
-    //   libnet_get_prand(LIBNET_PRu16),  // 窗口大小
-    //   0,                     // 校验和（由内核自动计算）
-    //   0,                     // 紧急指针
-    //   LIBNET_TCP_H,          // TCP数据包总长度
-    //   NULL,                  // TCP数据
-    //   0,                     // TCP数据长度
-    //   ln,                    // libnet句柄
-    //   0                      // 新建TCP标志
-    // );
-    // if (tcp_tag == -1) {
-    //   fprintf(stderr, "libnet_build_tcp() failed: %s\n", libnet_geterror(ln));
-    //   exit(1);
-    // }
-
-    // // 设置TCP SYN数据包IP首部
-    // libnet_ptag_t ip_tag = libnet_build_ipv4(
-    //   LIBNET_IPV4_H + LIBNET_TCP_H,  // IP数据包总长度
-    //   0,                             // TOS
-    //   libnet_get_prand(LIBNET_PRu16),// IP ID
-    //   0,                             // IP fragmentation offset
-    //   64,                            // TTL
-    //   IPPROTO_TCP,                   // 上层协议
-    //   0,                             // IP首部校验和（由内核自动计算）
-    //   inet_addr(target_ip),          // 源IP
-    //   inet_addr(target_ip),          // 目标IP
-    //   NULL,                          // IP数据
-    //   0,                             // IP数据长度
-    //   ln,                            // libnet句柄
-    //   0                              // 新建IP标志
-    // );
-    // if (ip_tag == -1) {
 }
 
-bool SynScan::checkPacket(const u_char* packet_data, int packet_size)
-{
-    if (packet_size < LIBNET_IPV4_H + LIBNET_TCP_H) {
-        return false;
-    }
-    const struct libnet_ipv4_hdr* ip_hdr = reinterpret_cast<const struct libnet_ipv4_hdr*>(packet_data + LIBNET_ETH_H);
-    const struct libnet_tcp_hdr* tcp_hdr = reinterpret_cast<const struct libnet_tcp_hdr*>(packet_data + LIBNET_ETH_H + LIBNET_IPV4_H);
-    if (ip_hdr->ip_src.s_addr != m_ip_addr.toIPv4Address()) {
-        return false;
-    }
-    if (tcp_hdr->th_sport != htons(m_port)) {
-        return false;
-    }
-    if ((tcp_hdr->th_flags & (TH_SYN|TH_ACK)) == (TH_SYN|TH_ACK)) {
-        return true;
-    }
-    return false;
-}
 
 virtual void FinScan::scan(QString ip,int port) {
     int a=0;

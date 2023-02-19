@@ -16,6 +16,8 @@
 #include <QMutex>
 #include "PortScanner.h"
 
+using namespace std;
+
 class Gui : public QMainWindow
 {
     Q_OBJECT

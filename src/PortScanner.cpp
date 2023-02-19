@@ -2,68 +2,63 @@
 #include "../include/PortScanner.h"
 #include "../include/ScanTask.h"
 
-ScanTask* creatScanTask(const QString& type, pcap_t* pcap_handle,libnet_t* libnet_handle,
-                        const QString&  ip, int start_port, int end_port){
+ScanTask* creatScanTask(const QString& type,libnet_t* libnet_handle,
+                        const char*  src_ip, const char* dst_ip, int start_port, int end_port){
     ScanTask *scanTask = NULL;
     if (type == "CON"){
-        scanTask = new ConnectScan(pcap_handle,libnet_handle,ip, start_port,end_port);
+        scanTask = new ConnectScan(libnet_handle,src_ip,dst_ip, start_port,end_port);
     }else if (type == "SYN"){
-        scanTask = new SynScan(pcap_handle,libnet_handle,ip, start_port,end_port);
+        scanTask = new SynScan(libnet_handle,src_ip,dst_ip, start_port,end_port);
     }else if (type == "NULL"){
-        scanTask = new NullScan(pcap_handle,libnet_handle,ip, start_port,end_port);
+        scanTask = new NullScan(libnet_handle,src_ip,dst_ip, start_port,end_port);
     }else if (type == "FIN"){
-        scanTask = new FinScan(pcap_handle,libnet_handle,ip, start_port,end_port);
+        scanTask = new FinScan(libnet_handle,src_ip,dst_ip, start_port,end_port);
     }else if (type == "UDP"){
-        scanTask = new UdpScan(pcap_handle,libnet_handle,ip, start_port,end_port);
+        scanTask = new UdpScan(libnet_handle,src_ip,dst_ip, start_port,end_port);
     }
     return scanTask;
 }
 
 
-bool PortScanner::initLibpcapLibnet()
+bool PortScanner::initLibnet()
 {
-    char errbuf[PCAP_ERRBUF_SIZE];
-    char* dev = pcap_lookupdev(errbuf);
-    if (dev == NULL) {
-        emit error(QString("Error finding default device: %1").arg(errbuf));
-        return false;
-    }
+    // char errbuf[PCAP_ERRBUF_SIZE];
+    // char* dev = pcap_lookupdev(errbuf);
+    // if (dev == NULL) {
+    //     emit error(QString("Error finding default device: %1").arg(errbuf));
+    //     return false;
+    // }
 
-    bpf_u_int32 net, mask;
-    if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
-        emit error(QString("Error finding net and mask for device %1: %2").arg(dev).arg(errbuf));
-        return false;
-    }
+    // bpf_u_int32 net, mask;
+    // if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
+    //     emit error(QString("Error finding net and mask for device %1: %2").arg(dev).arg(errbuf));
+    //     return false;
+    // }
 
-    m_pcap_handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
-    if (m_pcap_handle == NULL) {
-        emit error(QString("Error opening pcap device %1: %2").arg(dev).arg(errbuf));
-        return false;
-    }
+    // m_pcap_handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
+    // if (m_pcap_handle == NULL) {
+    //     emit error(QString("Error opening pcap device %1: %2").arg(dev).arg(errbuf));
+    //     return false;
+    // }
 
     char libnet_errbuf[LIBNET_ERRBUF_SIZE];
     m_libnet_handle = libnet_init(LIBNET_RAW4, dev, libnet_errbuf);
     if (m_libnet_handle == NULL) {
-        emit error(QString("Error initializing libnet: %1").arg(libnet_errbuf));
+        emit error(QString("Error initializing libnet: %1\n").arg(libnet_errbuf));
         return false;
     }
-
-    struct in_addr src_ip;
-    inet_aton("127.0.0.1", &src_ip);
-    // inet_aton(getLocalIpAddress().toStdString().c_str(), &src_ip);
-    libnet_seed_prand(m_libnet_handle);
-    libnet_autobuild_ipv4(LIBNET_IPV4_H + LIBNET_TCP_H, IPPROTO_TCP, src_ip.s_addr, m_ip_addr.toIPv4Address(), NULL, 0, m_libnet_handle);
-    libnet_autobuild_tcp(libnet_get_prand(LIBNET_PRu16), m_start_port, libnet_get_prand(LIBNET_PRu16), 0, TH_SYN, 2048, NULL, 0, m_libnet_handle);
-
     return true;
 }
-void PortScanner::scan(const QString& ip, int start_port, int end_port)
+
+
+void PortScanner::scan(const char* dst_ip, int start_port, int end_port)
 {
+    const char *src_ip = "10.10.0.8";
     // 清除之前扫描的结果
     m_results.clear();
     m_progress = 0;
 
-    if (!initLibpcapLibnet()){
+    if (!initLibnet()){
         return;
     }
     // 计算端口数量
@@ -86,14 +81,24 @@ void PortScanner::scan(const QString& ip, int start_port, int end_port)
         port_ranges.append(qMakePair(port, port + num_ports_for_thread - 1));
         port += num_ports_for_thread;
     }
+    // 创建线程池
+    for (int i = 0; i < num_scan_threads; ++i) {
+        QThread* thread = new QThread(this);
+        thread->start();
+        m_threads_pool.append(thread);
+    }
     // 启动每个线程
     for (const auto& range : port_ranges) {
-        ScanTask* scanTask = creatScanTask(m_scanType, m_pcap_handle,m_ibnet_handle,ip, range.first, range.second)
+        ScanTask *scanTask = creatScanTask(m_scanType, m_ibnet_handle, src_ip,dst_ip, range.first, range.second);
+        //加入子线程
+        QThread* thread = m_threads_pool.at(thread_index);
+        scanTask->moveToThread(thread);
         // 连接信号槽
         connect(this,&PortScanner::pause,scanTask,&ScanTask::pause);
         connect(this,&PortScanner::resume,scanTask,&ScanTask::resume);
         connect(this,&PortScanner::stop,scanTask,&ScanTask::stop);
         connect(scanTask,&ScanTask::resultReady,this,&PortScanner::handleTask);
+        connect(scanTask,&ScanTask::error,this,&PortScanner::handleError);
         QThreadPool::globalInstance()->start(scanTask);
     }
 }

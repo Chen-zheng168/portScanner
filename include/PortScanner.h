@@ -5,6 +5,8 @@
 #include <QMap>
 #include "ScanTask.h"
 
+using namespace std;
+
 class PortScanner : public QObject
 {
     Q_OBJECT
@@ -13,8 +15,8 @@ public:
     explicit PortScanner(QObject *parent = nullptr) : QObject(parent) {
         m_progress = 0;
     }
-    bool initLibpcapLibnet();
-    void scan(const QString &ip, int start_port, int end_port);
+    bool initLibnet();
+    void scan(const char* dst_ip, int start_port, int end_port);
 
     // 获取扫描结果
     const QMap<int, bool>& results() const { return m_results; }
@@ -39,6 +41,9 @@ public slots:
         QThreadPool::globalInstance()->clear();
         // 发送 stopped 信号
         emit stop();
+    }
+    void handleError(const QString& err){
+        emit error(err);
     }
 
     // 接收任务完成信号
@@ -74,7 +79,7 @@ signals:
     void error(const QString& err);
 
 private:
-    
+    QList<QThread*> m_threads_pool;
     QMap<int, bool> m_results;// 扫描结果
     QString m_scanType;//扫描类型
     QMutex m_mutex;//锁
