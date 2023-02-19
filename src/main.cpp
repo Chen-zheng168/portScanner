@@ -1,5 +1,6 @@
+#pragma once
 #include <QApplication>
-#include "Gui.h"
+#include "../include/Gui.h"
 
 int main(int argc, char *argv[])
 {

@@ -1,16 +1,16 @@
-#pragma once
-#include "Gui.h"
+
+#include "../include/Gui.h"
 
 
 
-Gui::Gui(QWidget* parent = nullptr) : QWidget(parent)
+Gui::Gui(QWidget* parent) : QMainWindow(parent)
 {
     // 创建控件
     m_typeBox = new QComboBox(this);
     QStringList strList;
     strList << "SYN"
-            << " " << ;
-    m_typeBox->addItem(strList);
+            << "FULL";
+    m_typeBox->addItems(strList);
     m_typeBox->setCurrentIndex(1);
     m_ipEdit = new QLineEdit("127.0.0.1", this);
     m_startPortSpin = new QSpinBox(this);
@@ -46,24 +46,24 @@ Gui::Gui(QWidget* parent = nullptr) : QWidget(parent)
     // 连接信号槽
     connect(m_scanBtn, &QPushButton::clicked, this, [=]() {
         // 点击“Scan”按钮后开始扫描
-        startScan(m_ipEdit->text(), m_startPortSpin->value(), m_endPortSpin->value(), m_timeoutSpin->value());
+        startScan(m_ipEdit->text(), m_startPortSpin->value(), m_endPortSpin->value());
     });
 
     connect(m_stopBtn, &QPushButton::clicked, this, &Gui::stopScan);
     connect(m_pauseBtn, &QPushButton::clicked, this, &Gui::pauseScan);
     connect(m_scanner, &PortScanner::error,this, &Gui::error);
-    connect(this, &Gui::stop, m_scanner, &PortScanner::stop);
-    connect(this, &Gui::resume, m_scanner, &PortScanner::resume);
-    connect(this, &Gui::pause, m_scanner, &PortScanner::pause);
+    connect(this, &Gui::stop, m_scanner, &PortScanner::stoped);
+    connect(this, &Gui::resume, m_scanner, &PortScanner::resumed);
+    connect(this, &Gui::pause, m_scanner, &PortScanner::paused);
 }
 
-void Gui::startScan(const QString& ip, int start_port, int end_port, int timeout_ms)
+void Gui::startScan(const QString& ip, int start_port, int end_port)
 {
     m_stopBtn->setEnabled(true);
     m_pauseBtn->setEnabled(true);
     m_statusLabel->setText("————————开始扫描————————\n");
     // 创建端口扫描器,根据扫描方式创建对应的扫描器
-    m_scanner->setScanType(m_typeBox->CurrentText());
+    m_scanner->setScanType(m_typeBox->currentText());
     // 连接端口扫描器的信号槽
     connect(m_scanner, &PortScanner::resultReady, this, &Gui::updateResult);
     connect(m_scanner, &PortScanner::progress, this, &Gui::progress);
@@ -91,7 +91,7 @@ void Gui::updateResult(int port, bool open)
     m_statusLabel->setText(m_statusLabel->text() + statusText);
 }
 
-void Gui::error(Qstring& err){
+void Gui::error(const QString& err){
     // 在状态标签中显示错误
     m_statusLabel->setText(m_statusLabel->text() + err);
 }

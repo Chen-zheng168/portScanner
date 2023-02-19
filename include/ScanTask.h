@@ -2,6 +2,7 @@
 #pragma once
 #include <QtWidgets>
 #include <pcap.h>
+#include <libnet.h>
 
 class ScanTask : virtual public QRunnable
 {
@@ -26,9 +27,10 @@ public:
             }
         }
     }
-    virtual void scan(int port) = 0;
 
-private slots:
+    virtual bool scan(QString& ip,int port);
+
+public slots:
     // 暂停扫描
     void pause() { m_paused = true; }
     // 继续扫描
@@ -39,7 +41,7 @@ private slots:
 signals:
     void resultReady(int port, bool open);
 
-private:
+protected:
     QString m_ip;
     int m_start_port;
     int m_end_port;
@@ -52,9 +54,16 @@ private:
 class ConnectScan : public ScanTask
 {
 public:
-    ConnectScan(const QString& ip, int start_port, int end_port)
-        : m_ip(ip), m_start_port(start_port), m_end_port(end_port), m_stopped(false)
-        , m_paused(false){}
+    ConnectScan(pcap_t* pcap_handle,libnet_t* libnet_handle,const QString& ip, int start_port, int end_port)
+    {
+        m_pcap_handle = pcap_handle;
+        m_libnet_handle = libnet_handle;
+        m_ip = ip;
+        m_start_port = start_port;
+        m_end_port = end_port;
+        m_stopped = false;
+        m_paused = false;
+    }
     virtual ~ConnectScan() {}
 
     virtual void scan(QString ip,int port) {
@@ -64,9 +73,16 @@ public:
 
 class SynScan : public ScanTask {
 public:
-    SynScan(const QString& ip, int start_port, int end_port)
-        : m_ip(ip), m_start_port(start_port), m_end_port(end_port), m_stopped(false)
-        , m_paused(false){}
+    SynScan(pcap_t* pcap_handle,libnet_t* libnet_handle,const QString& ip, int start_port, int end_port)
+    {
+        m_pcap_handle = pcap_handle;
+        m_libnet_handle = libnet_handle;
+        m_ip = ip;
+        m_start_port = start_port;
+        m_end_port = end_port;
+        m_stopped = false;
+        m_paused = false;
+    }
     virtual ~SynScan() {}
 
     virtual void scan(QString ip,int port) {
@@ -76,9 +92,16 @@ public:
 
 class FinScan : public ScanTask {
 public:
-    FinScanner(const QString& ip, int start_port, int end_port)
-        : m_ip(ip), m_start_port(start_port), m_end_port(end_port), m_stopped(false)
-        , m_paused(false){}
+    FinScan(pcap_t* pcap_handle,libnet_t* libnet_handle,const QString& ip, int start_port, int end_port)
+    {
+        m_pcap_handle = pcap_handle;
+        m_libnet_handle = libnet_handle;
+        m_ip = ip;
+        m_start_port = start_port;
+        m_end_port = end_port;
+        m_stopped = false;
+        m_paused = false;
+    }
     virtual ~FinScan() {}
 
     virtual void scan(QString ip,int port) {
@@ -88,9 +111,16 @@ public:
 
 class NullScan : public ScanTask {
 public:
-    NullScan(const QString& ip, int start_port, int end_port)
-        : m_ip(ip), m_start_port(start_port), m_end_port(end_port), m_stopped(false)
-        , m_paused(false){}
+    NullScan(pcap_t* pcap_handle,libnet_t* libnet_handle,const QString& ip, int start_port, int end_port)
+    {
+        m_pcap_handle = pcap_handle;
+        m_libnet_handle = libnet_handle;
+        m_ip = ip;
+        m_start_port = start_port;
+        m_end_port = end_port;
+        m_stopped = false;
+        m_paused = false;
+    }
     virtual ~NullScan() {}
 
     virtual void scan(QString ip,int port) {
@@ -100,9 +130,16 @@ public:
 
 class XmasScan : public ScanTask {
 public:
-    XmasScan(const QString& ip, int start_port, int end_port)
-        : m_ip(ip), m_start_port(start_port), m_end_port(end_port), m_stopped(false)
-        , m_paused(false){}
+    XmasScan(pcap_t* pcap_handle,libnet_t* libnet_handle,const QString& ip, int start_port, int end_port)
+    {
+        m_pcap_handle = pcap_handle;
+        m_libnet_handle = libnet_handle;
+        m_ip = ip;
+        m_start_port = start_port;
+        m_end_port = end_port;
+        m_stopped = false;
+        m_paused = false;
+    }
     virtual ~XmasScan() {}
 
     virtual void scan(QString ip,int port) {
@@ -112,9 +149,16 @@ public:
 
 class UdpScan : public ScanTask {
 public:
-    UdpScan(const QString& ip, int start_port, int end_port)
-        : m_ip(ip), m_start_port(start_port), m_end_port(end_port), m_stopped(false)
-        , m_paused(false){}
+    UdpScan(pcap_t* pcap_handle,libnet_t* libnet_handle,const QString& ip, int start_port, int end_port)
+    {
+        m_pcap_handle = pcap_handle;
+        m_libnet_handle = libnet_handle;
+        m_ip = ip;
+        m_start_port = start_port;
+        m_end_port = end_port;
+        m_stopped = false;
+        m_paused = false;
+    }
     virtual ~UdpScan() {}
 
     virtual void scan(QString ip,int port) {

@@ -1,27 +1,24 @@
-#pragma once
-#include "PortScanner.h"
 
-ScanTask* creatScanTask(const Qstring& type, pcap_t* pcap_handle,libnet_t* libnet_handle,
-                        const Qstring&  ip, int start_port, int end_port){
+#include "../include/PortScanner.h"
+#include "../include/ScanTask.h"
+
+ScanTask* creatScanTask(const QString& type, pcap_t* pcap_handle,libnet_t* libnet_handle,
+                        const QString&  ip, int start_port, int end_port){
     ScanTask *scanTask = NULL;
     if (type == "CON"){
-        scanTask = new ConnectScan(pcap_handle,libnet_handle,ip, start_port,end_port)
+        scanTask = new ConnectScan(pcap_handle,libnet_handle,ip, start_port,end_port);
     }else if (type == "SYN"){
-        scanTask = new SynScan(pcap_handle,libnet_handle,ip, start_port,end_port)
+        scanTask = new SynScan(pcap_handle,libnet_handle,ip, start_port,end_port);
     }else if (type == "NULL"){
-        scanTask = new NullScan(pcap_handle,libnet_handle,ip, start_port,end_port)
+        scanTask = new NullScan(pcap_handle,libnet_handle,ip, start_port,end_port);
     }else if (type == "FIN"){
-        scanTask = new FinScan(pcap_handle,libnet_handle,ip, start_port,end_port)
+        scanTask = new FinScan(pcap_handle,libnet_handle,ip, start_port,end_port);
     }else if (type == "UDP"){
-        scanTask = new UdpScan(pcap_handle,libnet_handle,ip, start_port,end_port)
+        scanTask = new UdpScan(pcap_handle,libnet_handle,ip, start_port,end_port);
     }
     return scanTask;
 }
 
-PortScanner::PortScanner(QObject *parent = nullptr) : QObject(parent) 
-{
-    m_progress = 0;
-}
 
 bool PortScanner::initLibpcapLibnet()
 {
@@ -52,8 +49,8 @@ bool PortScanner::initLibpcapLibnet()
     }
 
     struct in_addr src_ip;
-    inet_aton(getLocalIpAddress().toStdString().c_str(), &src_ip);
-
+    inet_aton("127.0.0.1", &src_ip);
+    // inet_aton(getLocalIpAddress().toStdString().c_str(), &src_ip);
     libnet_seed_prand(m_libnet_handle);
     libnet_autobuild_ipv4(LIBNET_IPV4_H + LIBNET_TCP_H, IPPROTO_TCP, src_ip.s_addr, m_ip_addr.toIPv4Address(), NULL, 0, m_libnet_handle);
     libnet_autobuild_tcp(libnet_get_prand(LIBNET_PRu16), m_start_port, libnet_get_prand(LIBNET_PRu16), 0, TH_SYN, 2048, NULL, 0, m_libnet_handle);
@@ -67,7 +64,7 @@ void PortScanner::scan(const QString& ip, int start_port, int end_port)
     m_progress = 0;
 
     if (!initLibpcapLibnet()){
-        return
+        return;
     }
     // 计算端口数量
     m_ports = end_port - start_port + 1;
@@ -91,7 +88,7 @@ void PortScanner::scan(const QString& ip, int start_port, int end_port)
     }
     // 启动每个线程
     for (const auto& range : port_ranges) {
-        ScanTask* scanTask = creatScanTask(m_scanType, pcap_handle,libnet_handle;ip, range.first, range.second)
+        ScanTask* scanTask = creatScanTask(m_scanType, m_pcap_handle,m_ibnet_handle,ip, range.first, range.second)
         // 连接信号槽
         connect(this,&PortScanner::pause,scanTask,&ScanTask::pause);
         connect(this,&PortScanner::resume,scanTask,&ScanTask::resume);

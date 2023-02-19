@@ -8,17 +8,20 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QString>
+#include <QSpinBox>
 #include <QPushButton>
 #include <QTextEdit>
 #include <QThreadPool>
 #include <QMutex>
+#include "PortScanner.h"
 
-class Gui : public QWidget
+class Gui : public QMainWindow
 {
     Q_OBJECT
 
 public:
-    Gui(QWidget *parent = nullptr);
+    Gui(QWidget *parent=nullptr);
 
 
 public slots:
@@ -38,7 +41,7 @@ public slots:
         m_pauseBtn->setDisabled(true);
     }
     //扫描出错
-    void error(Qstring& err);
+    void error(const QString& err);
 signals:
     // 扫描停止信号
     void stop();
@@ -60,7 +63,7 @@ private:
     QLabel* m_statusLabel;
     QProgressBar *m_progressBar;
     //扫描方式
-    QComboBox m_typeBox;
+    QComboBox* m_typeBox;
     // 端口扫描器
     PortScanner* m_scanner;
 };
