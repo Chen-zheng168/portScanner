@@ -1,6 +1,7 @@
 
 
 #include <QMainWindow>
+#include <QWidget>
 #include <QThread>
 #include <QProgressBar>
 #include <QVBoxLayout>
@@ -18,30 +19,27 @@
 
 using namespace std;
 
-class Gui : public QMainWindow
+class Gui : public QWidget
 {
     Q_OBJECT
-
 public:
     Gui(QWidget *parent=nullptr);
 
-
 public slots:
     // 开始扫描
-    void startScan(const QString& ip, int start_port, int end_port);
+    void startScan(QString ips, uint16_t start_port, uint16_t end_port);
     // 更新扫描结果
-    void updateResult(int port, bool open);
+    void updateResult(int port, int open);
+    //扫描结果
+    void finalResult(const QString& res);
     // 停止扫描
-    void stopScan() { emit stop(); }
+    void stopScan();
     // 暂停/恢复扫描
     void pauseScan();
     //扫描进度
     void progress(int value);
     //扫描结束
-    void finished(){
-        m_stopBtn->setDisabled(true);
-        m_pauseBtn->setDisabled(true);
-    }
+    void finished();
     //扫描出错
     void error(const QString& err);
 signals:
@@ -62,10 +60,11 @@ private:
     QPushButton* m_scanBtn;
     QPushButton* m_pauseBtn;
     QPushButton* m_stopBtn;
-    QLabel* m_statusLabel;
+    QTextEdit* m_statusLabel;
     QProgressBar *m_progressBar;
     //扫描方式
     QComboBox* m_typeBox;
+    QComboBox* m_showBox ;
     // 端口扫描器
     PortScanner* m_scanner;
 };

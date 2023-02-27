@@ -1,51 +1,34 @@
-
-#pragma once
 #include <iostream>
 #include <QtWidgets>
 #include <pcap.h>
 #include <libnet.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
-
+#include <netinet/in.h>
+#include <netinet/ip_icmp.h>
+#include <arpa/inet.h>
+#include <net/ethernet.h>
+#include <mutex>
+#include <time.h>
+#include "Utils.h"
+#define SRC_PORT 6666
 using namespace std;
 
-class ScanTask : virtual public QObject
+struct PortState{
+  const char* addr;
+  uint16_t port;
+  uint16_t state;
+};
+uint16_t getSign(const QString& scan_type);
+class SendTask : public QObject,public QRunnable
 {
+    Q_OBJECT
 public:
-    ScanTask(libnet_t* m_libnet_handle, const char* src_ip, const char* dst_ip,int start_port, int end_port) : m_libnet_handle(m_libnet_handle), src_ip(src_ip)
-    , dst_ip(dst_ip),m_start_port(start_port),m_end_port(end_port),m_stopped(false),m_paused(false) {}
-    ~ScanTask(){}
-    void run()
-    {
-        //初始化抓包
-        m_pcap_handle = pcap_open_live("any", 65535, 1, 1, NULL);  // 抓取所有网络接口上的数据包
-        if (m_pcap_handle == NULL) {
-          fprintf(stderr, "pcap_open_live() failed: %s\n", pcap_geterr(m_libnet_handle));
-          exit(EXIT_FAILURE);
-        }
-        for (int port = m_start_port; port <= m_end_port; ++port) {
-            if (m_stopped)
-                return;
-            // 暂停扫描
-            while (m_paused) {
-                QThread::msleep(100);
-                if (m_stopped)
-                {
-                    pcap_close(m_pcap_handle);
-                    return;
-                }
+    SendTask(char* dev,const QList<QPair<QString,QPair<uint16_t, uint16_t>>>& port_ranges,const QString& scan_type) : m_dev(dev),
+    m_port_ranges(port_ranges),m_type(scan_type),m_stopped(false),m_paused(false),m_rev_done(false) {}
 
-            }
-            if (scan(m_ip,port)) {
-                emit resultReady(port, true); // 端口打开
-            } else {
-                emit resultReady(port, false);// 端口关闭
-            }
-        }
-        pcap_close(m_pcap_handle);
-        emit finished();
-    }
-    virtual bool scan(int port) = 0;
+    ~SendTask(){}
+    void run() override;
 
 public slots:
     // 暂停扫描
@@ -54,107 +37,173 @@ public slots:
     void resume() { m_paused = false; }
     // 停止扫描
     void stop() { m_stopped = true; }
+    void revEnd(){
+        m_rev_done = true;
+    }
+    //发送RST/ACK
+    void sendPacket(const string& dst_ip, uint16_t port, uint16_t sign);
 
 signals:
-    void resultReady(int port, bool open);
-    void error(const QString err);
+    void error(const QString& err);
+    void finished();
+    void setCurrentIP(const QString& ip);
+    void initError();
+    //开始发送
+    void startSend();
+    //结束发送
+    void endSend();
+
+
+protected:
+    bool initLibnet();
+    void build_tcp(uint16_t port,uint16_t sign);
+    void build_ipv4(const string& dst_ip);
+    void build_send_packet(const string& dst_ip, uint16_t port, uint16_t sign);
+    char* m_dev;
+    bool m_stopped;
+    bool m_paused;
+    bool m_rev_done;
+    string m_dst_ip; 
+    string m_src_ip; 
+    QString m_type;
+    QList<QPair<QString,QPair<uint16_t, uint16_t>>> m_port_ranges;
+    libnet_t* m_libnet_handle;
+    libnet_ptag_t m_udp = 0, m_tcp = 0, m_ipv4 = 0;
+    static std::mutex m_mutex;
+    static std::mutex m_mutex1;
+};  
+
+
+class RevTask : public QObject,public QRunnable
+{
+    Q_OBJECT
+public:
+    RevTask(char* dev,const QString& scan_type) : m_dev(dev),m_type(scan_type),m_stopped(false),m_paused(false),m_start_rev(false),m_end_rev(false),m_send_init(true){}
+    ~RevTask(){}
+    // int initLibnet();
+    void run() override;
+
+public slots:
+    // 暂停扫描
+    void pause() { m_paused = true; }
+    // 继续扫描
+    void resume() { m_paused = false; }
+    // 停止扫描
+    void stop() { m_stopped = true; }
+    //更新当前扫描IP
+    void getCurrentIP(const QString& ip){
+        
+        m_current_ip = ip;
+        cout << m_current_ip.toStdString()<<" "<<m_past_ip.toStdString()<<endl;
+    };
+    void initError(){
+        m_send_init = false;
+    }
+    void startRev(){
+        m_start_rev = true;
+    }
+    void endRev(){
+        cout <<"end rev"<<endl;
+        m_end_rev = true;
+    }
+
+signals:
+    void sendPacket(const string& dst_ip, uint16_t port, uint16_t sign);
+    void resultReady(const QString& dst_ip,uint16_t port, uint16_t open);
+    void error(const QString& err);
     void finished();
 
 protected:
 
+    bool inintLibpcap();
+    string creatFilter(const QString& ip);
+    bool setFilter(const string& filter);
+    struct PortState packet_handler (u_char * user, const struct pcap_pkthdr *header,const u_char * packet);
+    char* m_dev;
     bool m_stopped;
     bool m_paused;
-    int m_start_port;
-    int m_end_port;
-    libnet_t* m_libnet_handle;
     pcap_t *m_pcap_handle;
-    const char* m_src_ip;
-    const char* m_dst_ip;
-
-    void sendPacket() {
-      int c = libnet_write(m_libnet_handle);
-      if (c == -1) {
-        fprintf(stderr, "libnet_write() failed: %s\n", libnet_geterror(m_libnet_handle));
-        exit(EXIT_FAILURE);
-      }
-
-      usleep(1000);  // 为了防止发送过快导致系统拒绝服务，每次发送后暂停一毫秒
-    }
-
-    virtual void handlePacket(const struct pcap_pkthdr* header, const u_char* packet) {}
-
-    static void handlePacketWrapper(u_char* user, const struct pcap_pkthdr* header, const u_char* packet) {
-      reinterpret_cast<Scanner*>(user)->handlePacket(header, packet);
-    }
-
-    static bool isTcp(const u_char* packet) {
-      const struct iphdr* ip_hdr = reinterpret_cast<const struct iphdr*>(packet + sizeof(struct ether_header));
-      return ip_hdr->protocol == IPPROTO_TCP;
-    }
-
-    static bool isDstIp(const u_char* packet, const char* dst_ip) {
-      const struct iphdr* ip_hdr = reinterpret_cast<const struct iphdr*>(packet + sizeof(struct ether_header));
-      return ip_hdr->daddr == inet_addr(dst_ip);
-    }
-};  
-
-class ConnectScan : public ScanTask
-{
-public:
-    ConnectScan(libnet_t* m_libnet_handle, const char* src_ip, const char* dst_ip,int start_port, int end_port): ScanTask(m_libnet_handle, src_ip, dst_ip,start_port,end_port) {}
-    virtual ~ConnectScan() {}
-
-    virtual void scan(int port) override{
-        // 使用 TCP Connect Scan 扫描指定 IP 地址的端口
-    }
+    QString m_type;
+    QString m_current_ip;
+    QString m_past_ip;
+    bool m_send_init;
+    bool m_start_rev;
+    bool m_end_rev;
 };
 
-class SynScan : public ScanTask {
-public:
-    SynScan(libnet_t* m_libnet_handle, const char* src_ip, const char* dst_ip,int start_port, int end_port): ScanTask(m_libnet_handle, src_ip, dst_ip,start_port,end_port) {}
-    virtual ~SynScan() {}
+// class ConnectScan : public SendTask
+// {
+// public:
+//     ConnectScan(libnet_t* m_libnet_handle, const string& dst_ip,int start_port, int end_port): 
+//         SendTask(m_libnet_handle, dst_ip,start_port,end_port) {
+//             cout << m_dst_ip << endl;
+//             m_filter = QString("(src host %1) and (tcp[13] == 0x14) or (tcp[13] == 0x12)").arg(dst_ip.c_str());
+//         }
+//     virtual ~ConnectScan() {}
 
-    virtual void scan(int port) override {
-        // 使用 TCP SYN Scan 扫描指定 IP 地址的端口
-    }
-};
+//     virtual int scan(int port) override;
+//     int packet_handler (u_char * user, const struct pcap_pkthdr *header,
+//         const u_char * packet);
+// };
 
-class FinScan : public ScanTask {
-public:
-    FinScan(libnet_t* m_libnet_handle, const char* src_ip, const char* dst_ip,int start_port, int end_port): ScanTask(m_libnet_handle, src_ip, dst_ip,start_port,end_port) {}
-    virtual ~FinScan() {}
+// class SynScan : public SendTask {
+// public:
+//     SynScan(libnet_t* m_libnet_handle, const string& dst_ip,int start_port, int end_port): SendTask(m_libnet_handle, dst_ip,start_port,end_port) {
+//         m_filter = QString("(src host %1) and (tcp[13] == 0x14) or (tcp[13] == 0x12)").arg(dst_ip.c_str());
+//         cout << "ip"<< m_dst_ip <<"filter: "<< m_filter.toStdString() << endl;
+//     }
+//     virtual ~SynScan() {}
 
-    virtual void scan(int port) override {
-        // 使用 TCP FIN Scan 扫描指定 IP 地址的端口
-    }
-};
+//     virtual int scan(int port) override;
+//     int packet_handler (u_char * user, const struct pcap_pkthdr *header,
+//         const u_char * packet);
+// };
 
-class NullScan : public ScanTask {
-public:
-    NullScan(libnet_t* m_libnet_handle, const char* src_ip, const char* dst_ip,int start_port, int end_port): ScanTask(m_libnet_handle, src_ip, dst_ip,start_port,end_port) {}
-    virtual ~NullScan() {}
+// class FinScan : public SendTask {
+// public:
+//     FinScan(libnet_t* m_libnet_handle, const string& dst_ip,int start_port, int end_port): SendTask(m_libnet_handle, dst_ip,start_port,end_port) {
+//         m_filter = QString("(src host %1) and (tcp[13] == 0x14) or (tcp[13] == 0x12)").arg(dst_ip.c_str());
+//     }
+//     virtual ~FinScan() {}
 
-    virtual void scan(int port) override {
-        // 使用 TCP NULL Scan 扫描指定 IP 地址的端口
-    }
-};
+//     virtual int scan(int port) override;
+//     int packet_handler (u_char * user, const struct pcap_pkthdr *header,
+//         const u_char * packet);
+// };
 
-class XmasScan : public ScanTask {
-public:
-    XmasScan(libnet_t* m_libnet_handle, const char* src_ip, const char* dst_ip,int start_port, int end_port): ScanTask(m_libnet_handle, src_ip, dst_ip,start_port,end_port) {}
-    virtual ~XmasScan() {}
+// class NullScan : public SendTask {
+// public:
+//     NullScan(libnet_t* m_libnet_handle, const string& dst_ip,int start_port, int end_port): SendTask(m_libnet_handle, dst_ip,start_port,end_port) {
+//         m_filter = QString("(src host %1) and (tcp[13] == 0x14) or (tcp[13] == 0x12)").arg(dst_ip.c_str());
+//     }
+//     virtual ~NullScan() {}
 
-    virtual void scan(int port) override {
-        // 使用 TCP Xmas Scan 扫描指定 IP 地址的端口
-    }
-};
+//     virtual int scan(int port) override ;
+//     int packet_handler (u_char * user, const struct pcap_pkthdr *header,
+//         const u_char * packet);
+// };
 
-class UdpScan : public ScanTask {
-public:
-    UdpScan(libnet_t* m_libnet_handle, const char* src_ip, const char* dst_ip,int start_port, int end_port): ScanTask(m_libnet_handle, src_ip, dst_ip,start_port,end_port) {}
-    virtual ~UdpScan() {}
+// class XmasScan : public SendTask {
+// public:
+//     XmasScan(libnet_t* m_libnet_handle, const string& dst_ip,int start_port, int end_port): SendTask(m_libnet_handle, dst_ip,start_port,end_port) {
+//         m_filter = QString("(src host %1) and (tcp[13] == 0x14) or (tcp[13] == 0x12)").arg(dst_ip.c_str());
+//     }
+//     virtual ~XmasScan() {}
 
-    virtual void scan(int port) override {
-        // 使用 UDP Scan 扫描指定 IP 地址的端口
-    }
-};
+//     virtual int scan(int port) override ;
+//     int packet_handler (u_char * user, const struct pcap_pkthdr *header,
+//         const u_char * packet);
+// };
+
+// class UdpScan : public SendTask {
+// public:
+//     UdpScan(libnet_t* m_libnet_handle, const string& dst_ip,int start_port, int end_port): SendTask(m_libnet_handle, dst_ip,start_port,end_port) {
+//         m_filter = QString("(src host %1) and (tcp[13] == 0x14) or (tcp[13] == 0x12)").arg(dst_ip.c_str());
+//     }
+//     virtual ~UdpScan() {}
+
+//     virtual int scan(int port) override ;
+//     int packet_handler (u_char * user, const struct pcap_pkthdr *header,
+//         const u_char * packet);
+// };
+

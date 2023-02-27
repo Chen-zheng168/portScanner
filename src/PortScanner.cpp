@@ -1,108 +1,123 @@
 
 #include "../include/PortScanner.h"
-#include "../include/ScanTask.h"
-
-ScanTask* creatScanTask(const QString& type,libnet_t* libnet_handle,
-                        const char*  src_ip, const char* dst_ip, int start_port, int end_port){
-    ScanTask *scanTask = NULL;
-    if (type == "CON"){
-        scanTask = new ConnectScan(libnet_handle,src_ip,dst_ip, start_port,end_port);
-    }else if (type == "SYN"){
-        scanTask = new SynScan(libnet_handle,src_ip,dst_ip, start_port,end_port);
-    }else if (type == "NULL"){
-        scanTask = new NullScan(libnet_handle,src_ip,dst_ip, start_port,end_port);
-    }else if (type == "FIN"){
-        scanTask = new FinScan(libnet_handle,src_ip,dst_ip, start_port,end_port);
-    }else if (type == "UDP"){
-        scanTask = new UdpScan(libnet_handle,src_ip,dst_ip, start_port,end_port);
-    }
-    return scanTask;
-}
 
 
-bool PortScanner::initLibnet()
+void PortScanner::scan(const vector<string>& dst_ips, uint16_t start_port, uint16_t end_port)
 {
-    // char errbuf[PCAP_ERRBUF_SIZE];
-    // char* dev = pcap_lookupdev(errbuf);
-    // if (dev == NULL) {
-    //     emit error(QString("Error finding default device: %1").arg(errbuf));
-    //     return false;
-    // }
 
-    // bpf_u_int32 net, mask;
-    // if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
-    //     emit error(QString("Error finding net and mask for device %1: %2").arg(dev).arg(errbuf));
-    //     return false;
-    // }
-
-    // m_pcap_handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
-    // if (m_pcap_handle == NULL) {
-    //     emit error(QString("Error opening pcap device %1: %2").arg(dev).arg(errbuf));
-    //     return false;
-    // }
-
-    char libnet_errbuf[LIBNET_ERRBUF_SIZE];
-    m_libnet_handle = libnet_init(LIBNET_RAW4, dev, libnet_errbuf);
-    if (m_libnet_handle == NULL) {
-        emit error(QString("Error initializing libnet: %1\n").arg(libnet_errbuf));
-        return false;
-    }
-    return true;
-}
-
-
-void PortScanner::scan(const char* dst_ip, int start_port, int end_port)
-{
-    const char *src_ip = "10.10.0.8";
+    // m_src_ip = "10.10.0.8";
     // 清除之前扫描的结果
-    m_results.clear();
-    m_progress = 0;
-
-    if (!initLibnet()){
-        return;
+    m_scan_result.clear();
+    m_scan_result += FillIn(QString("IP Address"),28,' ');
+    m_scan_result += FillIn(QString("|  Port"),20,' ');
+    m_scan_result += FillIn(QString("|  State"),20,' ').append('\n');
+    m_scan_result += FillIn(QString(""),68,'-').append('\n');
+    for (QMap<QString,QMap<uint16_t,uint16_t>>::iterator it=m_results.begin();it != m_results.end();++it){
+        it->clear();
     }
+    for (string dst_ip : dst_ips){
+        //根据扫描技术和only_show_open来判断是否对每个端口赋初始状态
+        QMap<uint16_t,uint16_t> port_map;
+        if (m_scanType == "SYN" || m_scanType == "FULL" || m_scanType == "TCP_WINDOW"){
+            if (!m_only_show_open){
+                for(uint16_t i=start_port;i <= end_port;i++){
+                    port_map.insert(i,FILTERED);
+                }
+            }
+        }else{
+            for(uint16_t i=start_port;i <= end_port;i++){
+                port_map.insert(i ,OPEN|FILTERED);
+            }
+               
+        }
+        m_results.insert(QString::fromStdString(dst_ip),port_map);
+    }
+    scaned_ports  = 0;
+    m_progress = 0;
+    // char* filter = creatFilter(m_scanType,m_src_ip);
+
+    
     // 计算端口数量
     m_ports = end_port - start_port + 1;
+    m_total_ports = m_ports*dst_ips.size();
     // 设置线程池大小为可用线程数
     int num_threads = QThreadPool::globalInstance()->maxThreadCount();
-    int num_scan_threads = qMin(num_threads, m_ports);
+    int num_scan_threads = qMin(num_threads, 2);
+    // num_scan_threads = 1;
     QThreadPool::globalInstance()->setMaxThreadCount(num_scan_threads);
-    // 计算每个线程扫描的端口数量
-    int num_ports_per_thread = m_ports / num_scan_threads;
-    int num_remaining_ports = m_ports - num_ports_per_thread * num_scan_threads;
-    // 生成每个线程需要扫描的端口范围
-    QList<QPair<int, int>> port_ranges;
-    int port = start_port;
-    for (int i = 0; i < num_scan_threads; i++) {
-        int num_ports_for_thread = num_ports_per_thread;
-        if (i < num_remaining_ports) {
-            num_ports_for_thread++;
+    QList<QPair<QString,QPair<uint16_t, uint16_t>>> port_ranges;
+    for (auto dst_ip:dst_ips){
+        port_ranges.append(qMakePair(QString::fromStdString(dst_ip),qMakePair(start_port,end_port)));
+    }
+    m_threads_pool.clear();
+
+    char* dev = NULL;
+    // 启动发送线程
+    libnet_t* libnet_handle=NULL;
+    SendTask* sendTask = new SendTask(dev,port_ranges,m_scanType);
+    // 连接信号槽
+    connect(this,&PortScanner::pause,sendTask,&SendTask::pause);
+    connect(this,&PortScanner::resume,sendTask,&SendTask::resume);
+    connect(this,&PortScanner::stop,sendTask,&SendTask::stop);
+    connect(sendTask,&SendTask::error,this,&PortScanner::handleError);
+    // connect(sendTask,&SendTask::resultReady,this,&PortScanner::handleTask);
+
+    //启动接受线程
+    RevTask* revTask = new RevTask(dev,m_scanType);
+    connect(this,&PortScanner::pause,revTask,&RevTask::pause);
+    connect(this,&PortScanner::resume,revTask,&RevTask::resume);
+    connect(this,&PortScanner::stop,revTask,&RevTask::stop);
+    connect(revTask,&RevTask::error,this,&PortScanner::handleError);
+    connect(revTask,&RevTask::resultReady,this,&PortScanner::handleTask);
+    connect(revTask,&RevTask::finished,this,&PortScanner::handleFinished);
+    connect(revTask,&RevTask::finished,sendTask,&SendTask::revEnd);
+    connect(sendTask,&SendTask::setCurrentIP,revTask,&RevTask::getCurrentIP);
+    connect(sendTask,&SendTask::startSend,revTask,&RevTask::startRev);
+    connect(sendTask,&SendTask::endSend,revTask,&RevTask::endRev);
+    connect(sendTask,&SendTask::initError,revTask,&RevTask::initError);;
+    m_start_time = clock();
+    m_threads_pool.start(sendTask);
+    m_threads_pool.start(revTask);
+}
+
+void PortScanner::handleTask(const QString& dst_ip,uint16_t port, uint16_t open)
+{
+    // m_mutex.lock();
+    if ((m_only_show_open && open == OPEN) || !m_only_show_open){
+        QMap<uint16_t,uint16_t> state_ = m_results.value(dst_ip);
+        state_.insert(port, open);
+        m_results.insert(dst_ip,state_);
+    }
+    // m_mutex.unlock();
+    // emit resultReady(port, open);
+    int progress_ = 100*scaned_ports / m_total_ports;
+    // cout << scaned_ports << endl;
+    if (m_progress != progress_){
+        m_progress = progress_;
+        emit progress(m_progress);
+    }
+}
+void PortScanner::handleFinished(){
+    cout << scaned_ports <<"  " << m_total_ports<<endl;
+    if (scaned_ports == m_total_ports) {
+        clock_t spend_time = clock()-m_start_time;
+        for (QString dst_ip: m_results.keys()){
+            QMap<uint16_t,uint16_t> state_   = m_results.value(dst_ip);
+            for(QMap<uint16_t,uint16_t>::iterator it =  state_.begin(); it != state_.end();++it){
+                m_scan_result += QString(dst_ip).leftJustified(30,' ');
+                // cout << it.key() << endl;
+                m_scan_result += QString("%1").arg(it.key()).leftJustified(20,' ');
+                m_scan_result += QString("%1").arg(state(it.value())).leftJustified(18,' ').append('\n');
+            }
         }
-        port_ranges.append(qMakePair(port, port + num_ports_for_thread - 1));
-        port += num_ports_for_thread;
+        m_scan_result += QString("spend time: %1 s").arg(double(spend_time)/CLOCKS_PER_SEC).append('\n');
+        emit progress(100);
+        emit finished();
+        emit finalResult(m_scan_result);
     }
-    // 创建线程池
-    for (int i = 0; i < num_scan_threads; ++i) {
-        QThread* thread = new QThread(this);
-        thread->start();
-        m_threads_pool.append(thread);
-    }
-    // 启动每个线程
-    for (const auto& range : port_ranges) {
-        ScanTask *scanTask = creatScanTask(m_scanType, m_ibnet_handle, src_ip,dst_ip, range.first, range.second);
-        //加入子线程
-        QThread* thread = m_threads_pool.at(thread_index);
-        scanTask->moveToThread(thread);
-        // 连接信号槽
-        connect(this,&PortScanner::start,scanTask,&ScanTask::run);
-        connect(this,&PortScanner::pause,scanTask,&ScanTask::pause);
-        connect(this,&PortScanner::resume,scanTask,&ScanTask::resume);
-        connect(this,&PortScanner::stop,scanTask,&ScanTask::stop);
-        connect(scanTask,&ScanTask::resultReady,this,&PortScanner::handleTask);
-        connect(scanTask,&ScanTask::error,this,&PortScanner::handleError);
-        connect(scanTask, &ScanTask::finished, scanTask, &ScanTask::deleteLater);
-        connect(thread, &QThread::finished, scanTask, &QObject::deleteLater);
-        QThreadPool::globalInstance()->start(scanTask);
-    }
-    emit start();
+}
+
+PortScanner::~PortScanner()
+{
+    m_threads_pool.clear();
 }
